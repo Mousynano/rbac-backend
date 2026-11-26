@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -129,6 +130,11 @@ func RequireAuth(auth Authenticator, next http.Handler) http.Handler {
 		}
 		userID, err := auth.Authenticate(r.Context(), cookie.Value)
 		if err != nil {
+			var unavailable interface{ Unwrap() error }
+			if errors.As(err, &unavailable) {
+				writeError(w, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE", "authentication unavailable")
+				return
+			}
 			writeError(w, http.StatusUnauthorized, "UNAUTHENTICATED", "authentication required")
 			return
 		}
