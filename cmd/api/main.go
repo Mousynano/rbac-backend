@@ -13,10 +13,13 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/Mousynano/rbac-backend/internal/auth"
+	"github.com/Mousynano/rbac-backend/internal/auth/httpapi"
 	"github.com/Mousynano/rbac-backend/internal/config"
 	"github.com/Mousynano/rbac-backend/internal/health"
 	"github.com/Mousynano/rbac-backend/internal/platform/database"
 	"github.com/Mousynano/rbac-backend/internal/platform/httpserver"
+	"github.com/Mousynano/rbac-backend/internal/platform/mail"
 )
 
 func main() {
@@ -60,6 +63,9 @@ func run() error {
 	// Routes.
 	mux := http.NewServeMux()
 	httpserver.HealthRoutes(mux, health.New(database.Readiness{Pool: pool}))
+	mailer := mail.SMTP{Config: mail.Config{Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUsername, Password: cfg.SMTPPassword, From: cfg.SMTPFrom, TLSMode: string(cfg.SMTPTLSMode)}}
+	authService := auth.Service{DB: pool, Mailer: mailer, HMACKey: cfg.OTPHMACKey}
+	httpapi.Routes(mux, authService, cfg.CookieSecure)
 	sessionAuth := database.SessionAuthenticator{Pool: pool}
 	httpserver.CurrentUserRoute(mux, sessionAuth, sessionAuth)
 
