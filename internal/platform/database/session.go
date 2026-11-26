@@ -17,6 +17,18 @@ var ErrSessionInvalid = errors.New("session is invalid")
 // SessionAuthenticator validates session tokens and current account eligibility.
 type SessionAuthenticator struct{ Pool *pgxpool.Pool }
 
+// CurrentUser loads the public profile for an authenticated principal.
+func (a SessionAuthenticator) CurrentUser(ctx context.Context, userID string) (auth.UserProfile, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	var user auth.UserProfile
+	err := a.Pool.QueryRow(ctx, `SELECT id::text, email, status FROM users WHERE id = $1 AND status = 'active'`, userID).Scan(&user.ID, &user.Email, &user.Status)
+	if err != nil {
+		return auth.UserProfile{}, fmt.Errorf("read current user: %w", err)
+	}
+	return user, nil
+}
+
 // Authenticate returns the user ID only for a live session on an active account.
 func (a SessionAuthenticator) Authenticate(ctx context.Context, token string) (string, error) {
 	if len(token) < 40 || len(token) > 128 {

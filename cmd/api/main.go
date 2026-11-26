@@ -60,6 +60,8 @@ func run() error {
 	// Routes.
 	mux := http.NewServeMux()
 	httpserver.HealthRoutes(mux, health.New(database.Readiness{Pool: pool}))
+	sessionAuth := database.SessionAuthenticator{Pool: pool}
+	httpserver.CurrentUserRoute(mux, sessionAuth, sessionAuth)
 
 	// HTTP server.
 	srv := httpserver.New(cfg.HTTPAddr, httpserver.Middleware(mux, cfg.AllowedOrigin))
