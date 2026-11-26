@@ -1,0 +1,46 @@
+{
+  "info": {
+    "_postman_id": "bb50f8e3-a7eb-4749-9a40-1431f617cf53",
+    "name": "RBAC Backend - Phase 1",
+    "description": "Phase 1 API collection. Health/readiness, email register/login/OTP verify and guarded current-user route are implemented. Google, recovery/logout and diagram requests remain planned and are explicitly marked.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8080" },
+    { "key": "allowed_origin", "value": "http://localhost:8080" }
+  ],
+  "item": [
+    {
+      "name": "Health (implemented)",
+      "item": [
+        { "name": "Liveness", "request": { "method": "GET", "header": [], "url": "{{base_url}}/healthz", "description": "Implemented. Expected 200 while the process is running." } },
+        { "name": "Readiness", "request": { "method": "GET", "header": [], "url": "{{base_url}}/readyz", "description": "Implemented. Expected 200 when PostgreSQL is reachable and schema version is current; 503 otherwise." } }
+      ]
+    },
+    {
+      "name": "Auth (partial implementation)",
+      "item": [
+        { "name": "Register (implemented)", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Origin", "value": "{{allowed_origin}}" }, { "key": "X-CSRF-Protection", "value": "1" }], "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/api/v1/auth/register", "description": "Implemented. Example email uses .test and will fail DNS eligibility; set a mail-capable local test domain. Expected 202 and pending cookie." } },
+        { "name": "Login (implemented)", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Origin", "value": "{{allowed_origin}}" }, { "key": "X-CSRF-Protection", "value": "1" }], "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/api/v1/auth/login", "description": "Implemented. Correct credentials start OTP challenge, no session before verify." } },
+        { "name": "Google SSO start (not implemented)", "request": { "method": "GET", "header": [], "url": "{{base_url}}/api/v1/auth/google", "description": "Planned OIDC start; requires Google configuration." } },
+        { "name": "Google callback (not implemented)", "request": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/api/v1/auth/google/callback?code={{oauth_code}}&state={{oauth_state}}", "host": ["{{base_url}}"], "path": ["api", "v1", "auth", "google", "callback"], "query": [{ "key": "code", "value": "{{oauth_code}}" }, { "key": "state", "value": "{{oauth_state}}" }] }, "description": "Planned callback. Do not log/share real OAuth codes or state." } },
+        { "name": "OTP verify (implemented)", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Origin", "value": "{{allowed_origin}}" }, { "key": "X-CSRF-Protection", "value": "1" }], "body": { "mode": "raw", "raw": "{\n  \"code\": \"{{otp}}\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/api/v1/auth/otp/verify", "description": "Implemented. Requires pending cookie from register/login. Read the code from Mailpit; code must be six ASCII digits." } },
+        { "name": "OTP resend (not implemented)", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Origin", "value": "{{allowed_origin}}" }, { "key": "X-CSRF-Protection", "value": "1" }], "body": { "mode": "raw", "raw": "{}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/api/v1/auth/otp/resend", "description": "Planned. Requires a valid pending cookie and resend cooldown." } },
+        { "name": "Forgot password (not implemented)", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Origin", "value": "{{allowed_origin}}" }, { "key": "X-CSRF-Protection", "value": "1" }], "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{email}}\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/api/v1/auth/password/forgot", "description": "Planned. Generic response to avoid account enumeration." } },
+        { "name": "Reset password (not implemented)", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Origin", "value": "{{allowed_origin}}" }, { "key": "X-CSRF-Protection", "value": "1" }], "body": { "mode": "raw", "raw": "{\n  \"code\": \"{{otp}}\",\n  \"new_password\": \"{{new_password}}\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/api/v1/auth/password/reset", "description": "Planned. Requires reset pending cookie; returns 204 and revokes old sessions." } },
+        { "name": "Current user (guard implemented; session issuance pending)", "request": { "method": "GET", "header": [], "url": "{{base_url}}/api/v1/auth/me", "description": "Route is implemented and should return 401 without rbac_session. A 200 requires a session created by the not-yet-implemented auth flow." } },
+        { "name": "Logout (not implemented)", "request": { "method": "POST", "header": [{ "key": "Origin", "value": "{{allowed_origin}}" }, { "key": "X-CSRF-Protection", "value": "1" }], "url": "{{base_url}}/api/v1/auth/logout", "description": "Planned. Revokes session and clears session/pending cookies." } }
+      ]
+    },
+    {
+      "name": "Diagrams (planned contract; not implemented)",
+      "item": [
+        { "name": "Create diagram", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Origin", "value": "{{allowed_origin}}" }, { "key": "X-CSRF-Protection", "value": "1" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"Sample blueprint\",\n  \"blueprint\": {\n    \"schema_version\": 1,\n    \"roles\": [{\"id\": \"reader\", \"name\": \"Reader\"}],\n    \"permissions\": [{\"id\": \"view_report\", \"resource\": \"report\", \"action\": \"view\"}],\n    \"grants\": [{\"role_id\": \"reader\", \"permission_id\": \"view_report\"}],\n    \"inheritance\": []\n  }\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/api/v1/diagrams", "description": "Planned. Requires authenticated session. Expected 201." } },
+        { "name": "List diagrams", "request": { "method": "GET", "header": [], "url": "{{base_url}}/api/v1/diagrams?limit=20&cursor={{cursor}}", "description": "Planned. Authenticated; summaries only." } },
+        { "name": "Get diagram", "request": { "method": "GET", "header": [], "url": "{{base_url}}/api/v1/diagrams/{{diagram_id}}", "description": "Planned. Non-owner and missing IDs return 404." } },
+        { "name": "Replace diagram", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Origin", "value": "{{allowed_origin}}" }, { "key": "X-CSRF-Protection", "value": "1" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"Sample blueprint updated\",\n  \"version\": {{diagram_version}},\n  \"blueprint\": {\n    \"schema_version\": 1,\n    \"roles\": [],\n    \"permissions\": [],\n    \"grants\": [],\n    \"inheritance\": []\n  }\n}", "options": { "raw": { "language": "json" } } }, "url": "{{base_url}}/api/v1/diagrams/{{diagram_id}}", "description": "Planned. Stale version returns 409." } },
+        { "name": "Delete diagram", "request": { "method": "DELETE", "header": [{ "key": "Origin", "value": "{{allowed_origin}}" }, { "key": "X-CSRF-Protection", "value": "1" }, { "key": "If-Match", "value": "\"{{diagram_version}}\"" }], "url": "{{base_url}}/api/v1/diagrams/{{diagram_id}}", "description": "Planned. Requires owner session and quoted current version." } }
+      ]
+    }
+  ]
+}
