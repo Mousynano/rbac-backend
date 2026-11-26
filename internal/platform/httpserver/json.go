@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 )
 
 // DecodeJSON reads exactly one JSON object, rejecting unknown fields and trailing data.
 func DecodeJSON(r *http.Request, dst any) error {
-	if r.Header.Get("Content-Type") != "application/json" {
+	mediaType, _, mediaTypeErr := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if mediaTypeErr != nil || mediaType != "application/json" {
 		return ErrUnsupportedMediaType
 	}
 	data, err := io.ReadAll(r.Body)

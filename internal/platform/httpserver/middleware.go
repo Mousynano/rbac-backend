@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/Mousynano/rbac-backend/internal/auth"
 )
 
 type contextKey uint8
@@ -121,17 +123,16 @@ type Authenticator interface {
 }
 
 // RequireAuth rejects requests without an authenticated principal.
-func RequireAuth(auth Authenticator, next http.Handler) http.Handler {
+func RequireAuth(authenticator Authenticator, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie("rbac_session")
 		if err != nil {
 			writeError(w, http.StatusUnauthorized, "UNAUTHENTICATED", "authentication required")
 			return
 		}
-		userID, err := auth.Authenticate(r.Context(), cookie.Value)
+		userID, err := authenticator.Authenticate(r.Context(), cookie.Value)
 		if err != nil {
-			var unavailable interface{ Unwrap() error }
-			if errors.As(err, &unavailable) {
+			if errors.Is(err, auth.ErrUnavailable) {
 				writeError(w, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE", "authentication unavailable")
 				return
 			}
