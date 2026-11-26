@@ -2,16 +2,16 @@ package auth
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"net/mail"
 	"strings"
 	"time"
-	"unicode/utf8"
 
+	"github.com/Mousynano/rbac-backend/internal/platform/emailpolicy"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -22,9 +22,10 @@ type Mailer interface {
 	Send(context.Context, string, string, string) error
 }
 type Service struct {
-	DB      *pgxpool.Pool
-	Mailer  Mailer
-	HMACKey []byte
+	DB       *pgxpool.Pool
+	Mailer   Mailer
+	HMACKey  []byte
+	Resolver emailpolicy.Resolver
 }
 type Pending struct {
 	Token   string
@@ -33,10 +34,16 @@ type Pending struct {
 
 // StartPasswordFlow validates credentials and starts a pending email challenge.
 func (s Service) StartPasswordFlow(ctx context.Context, email, password, purpose string) (Pending, error) {
-	email = strings.ToLower(strings.TrimSpace(email))
-	parsed, err := mail.ParseAddress(email)
-	if err != nil || parsed.Address != email || !utf8.ValidString(email) {
+	var err error
+	email, err = emailpolicy.Normalize(email)
+	if err != nil {
 		return Pending{}, ErrCredentials
+	}
+	if err = s.allowStart(ctx, email, purpose); err != nil {
+		return Pending{}, err
+	}
+	if err = s.checkEmail(ctx, email); err != nil {
+		return Pending{}, err
 	}
 	if purpose == "register" {
 		if !validPassword(password) {
@@ -65,6 +72,21 @@ func (s Service) StartPasswordFlow(ctx context.Context, email, password, purpose
 		}
 	}
 	return s.createChallenge(ctx, email, userID, passwordHash, purpose)
+}
+
+func (s Service) allowStart(ctx context.Context, email, purpose string) error {
+	h := hmac.New(sha256.New, s.HMACKey)
+	h.Write([]byte(email))
+	key := h.Sum(nil)
+	var count int
+	err := s.DB.QueryRow(ctx, `INSERT INTO auth_rate_limits(scope,key_hash,window_start,count) VALUES($1,$2,date_trunc('minute',now())-make_interval(mins => (extract(minute from now())::int % 15)),1) ON CONFLICT(scope,key_hash,window_start) DO UPDATE SET count=auth_rate_limits.count+1 RETURNING count`, "challenge:"+purpose, key).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("record challenge rate: %w", err)
+	}
+	if count > 5 {
+		return ErrCredentials
+	}
+	return nil
 }
 
 func (s Service) createChallenge(ctx context.Context, email, userID, passwordHash, purpose string) (Pending, error) {
@@ -97,6 +119,7 @@ func (s Service) createChallenge(ctx context.Context, email, userID, passwordHas
 		return Pending{}, fmt.Errorf("commit challenge: %w", err)
 	}
 	if err = s.Mailer.Send(ctx, email, "Your verification code", fmt.Sprintf("Your code is %s. It expires in 5 minutes.", code)); err != nil {
+		_, _ = s.DB.Exec(ctx, `UPDATE auth_challenges SET invalidated_at=now(), otp_digest=NULL, pending_password_hash=NULL WHERE id=$1::uuid`, id)
 		return Pending{}, fmt.Errorf("send verification email: %w", err)
 	}
 	return Pending{Token: token, Purpose: purpose}, nil
@@ -130,6 +153,16 @@ func (s Service) Verify(ctx context.Context, token, code string) (UserProfile, s
 		return UserProfile{}, "", ErrCredentials
 	}
 	if attempts >= 5 {
+		return UserProfile{}, "", ErrCredentials
+	}
+	if err = s.checkEmail(ctx, email); err != nil {
+		return UserProfile{}, "", err
+	}
+	var blocked bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM email_blocklist b WHERE (b.kind='email' AND b.value=$1) OR (b.kind='domain' AND (split_part($1,'@',2)=b.value OR split_part($1,'@',2) LIKE '%.'||b.value))) OR EXISTS(SELECT 1 FROM disposable_email_domains d WHERE split_part($1,'@',2)=d.domain OR split_part($1,'@',2) LIKE '%.'||d.domain)`, email).Scan(&blocked); err != nil {
+		return UserProfile{}, "", err
+	}
+	if blocked {
 		return UserProfile{}, "", ErrCredentials
 	}
 	if !VerifyOTPDigest(s.HMACKey, id, purpose, code, digest) {
@@ -167,6 +200,21 @@ func (s Service) Verify(ctx context.Context, token, code string) (UserProfile, s
 		return UserProfile{}, "", fmt.Errorf("commit verification: %w", err)
 	}
 	return UserProfile{ID: userID, Email: email, Status: "active"}, session, nil
+}
+
+func (s Service) checkEmail(ctx context.Context, email string) error {
+	var blocked bool
+	err := s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM email_blocklist b WHERE (b.kind='email' AND b.value=$1) OR (b.kind='domain' AND (split_part($1,'@',2)=b.value OR split_part($1,'@',2) LIKE '%.'||b.value))) OR EXISTS(SELECT 1 FROM disposable_email_domains d WHERE split_part($1,'@',2)=d.domain OR split_part($1,'@',2) LIKE '%.'||d.domain)`, email).Scan(&blocked)
+	if err != nil {
+		return fmt.Errorf("check email policy: %w", err)
+	}
+	if blocked {
+		return ErrCredentials
+	}
+	if s.Resolver == nil {
+		s.Resolver = emailpolicy.SystemResolver{}
+	}
+	return emailpolicy.CheckDomain(ctx, s.Resolver, strings.SplitN(email, "@", 2)[1])
 }
 
 func nullable(s string) any {

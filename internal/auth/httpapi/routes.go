@@ -2,6 +2,8 @@
 package httpapi
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"time"
@@ -22,7 +24,14 @@ func Routes(mux *http.ServeMux, service auth.Service, secure bool) {
 		}
 		pending, err := service.StartPasswordFlow(r.Context(), in.Email, in.Password, "register")
 		if err != nil {
-			writeError(w, 422, "REGISTRATION_REJECTED")
+			// Registration is intentionally generic to avoid account enumeration.
+			var raw [32]byte
+			if _, randomErr := rand.Read(raw[:]); randomErr != nil {
+				writeError(w, 503, "AUTH_UNAVAILABLE")
+				return
+			}
+			setPendingCookie(w, base64.RawURLEncoding.EncodeToString(raw[:]), secure)
+			httpserver.WriteJSON(w, 202, map[string]string{"status": "otp_required"})
 			return
 		}
 		setPendingCookie(w, pending.Token, secure)
