@@ -1,0 +1,6 @@
+.git
+.kiro
+.env
+*.test
+*.out
+coverage.*

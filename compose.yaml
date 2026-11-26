@@ -1,0 +1,47 @@
+services:
+  postgres:
+    image: postgres:18.7
+    environment:
+      POSTGRES_USER: rbac
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: rbac
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rbac -d rbac"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  mailpit:
+    image: axllent/mailpit:v1.34.0
+    ports:
+      - "127.0.0.1:8025:8025"
+
+  migrate:
+    build: .
+    image: rbac-backend:local
+    entrypoint: ["/app/migrate"]
+    command: ["up"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build: .
+    image: rbac-backend:local
+    env_file: .env
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      mailpit:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
